@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Text;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -26,16 +27,33 @@ namespace unsplash
         public MainWindow()
         {
             InitializeComponent();
-            WebClient client = new WebClient();
-            string html = client.DownloadString(GetBuildings(1));
-            HtmlDocument doc = new HtmlDocument();
-            doc.LoadHtml(html);
-            HtmlNodeCollection imageInfos = doc.DocumentNode.SelectNodes("//div[@class=\"js-pagination-container\"]/div");
-            foreach (HtmlNode item in imageInfos)
-            {
-                SplashImage splashImage = new SplashImage(item);
+            GetData(1);
+        }
 
-            }
+        void GetData(int pageIndex)
+        {
+            ProgressBarStatus.Visibility = Visibility.Visible;
+            Task.Factory.StartNew((index) =>
+            {
+                WebClient client = new WebClient { Encoding = Encoding.UTF8 };
+                string html = client.DownloadString(GetBuildings((int)index));
+                HtmlDocument doc = new HtmlDocument();
+                doc.LoadHtml(html);
+                HtmlNodeCollection imageInfos = doc.DocumentNode.SelectNodes("//div[@class=\"js-pagination-container\"]/div");
+                this.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    ProgressBarStatus.Visibility = Visibility.Hidden;
+                }));
+                foreach (HtmlNode item in imageInfos)
+                {
+                    SplashImage splashImage = new SplashImage(item);
+                    this.Dispatcher.BeginInvoke(new Action<SplashImage>(m =>
+                    {
+                        ImageItem imageItem = new ImageItem(splashImage) { Width = 250, Height = 200 };
+                        WrapPanelImages.Children.Add(imageItem);
+                    }), splashImage);
+                }
+            }, pageIndex);
         }
 
         string GetBuildings(int pageIndex)
