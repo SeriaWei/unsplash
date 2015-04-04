@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
+using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
@@ -22,63 +23,164 @@ namespace unsplash
     /// </summary>
     public partial class MainWindow : Window
     {
+        int pageIndex = 1;
+        string currentCategory;
         private const string Url =
             "https://unsplash.com/grid/filter?category[2]={0}&category[3]={1}&category[4]={2}&category[6]={3}&category[7]={4}&category[8]={5}&page={6}&scope[featured]=1&search[keyword]=&utf8=%E2%9C%93";
+        List<SplashImage> _allImages;
         public MainWindow()
         {
             InitializeComponent();
-            GetData(1);
+            foreach (UIElement item in Canvas_ButtonGroup.Children)
+            {
+                (item as Button).Click += (e, s) =>
+                {
+                    DisableButtons();
+                    MethodInfo method = this.GetType().GetMethod((e as Button).Tag.ToString());
+                    method.Invoke(this, new object[] { pageIndex });
+                };
+            }
+        }
+        void EnableButtons()
+        {
+            foreach (UIElement btn in Canvas_ButtonGroup.Children)
+            {
+                btn.IsEnabled = true;
+            }
+        }
+        void DisableButtons()
+        {
+            foreach (UIElement btn in Canvas_ButtonGroup.Children)
+            {
+                btn.IsEnabled = false;
+            }
         }
 
-        void GetData(int pageIndex)
+        void GetData(string url)
         {
+            this.Title = string.Format("{0} ({1})", currentCategory, pageIndex);
             ProgressBarStatus.Visibility = Visibility.Visible;
+            WrapPanelImages.Children.Clear();
             Task.Factory.StartNew((index) =>
             {
+                _allImages = GetAllImageInfo();
+                if (_allImages == null)
+                {
+                    _allImages = new List<SplashImage>();
+                }
                 WebClient client = new WebClient { Encoding = Encoding.UTF8 };
-                string html = client.DownloadString(GetBuildings((int)index));
+                string html = client.DownloadString(url);
                 HtmlDocument doc = new HtmlDocument();
                 doc.LoadHtml(html);
-                HtmlNodeCollection imageInfos = doc.DocumentNode.SelectNodes("//div[@class=\"js-pagination-container\"]/div");
+                HtmlNodeCollection imageInfos = doc.DocumentNode.SelectNodes("//div[@class=\"js-pagination-container\"]/div[@class=\"sheet photo-container js-packery-image-container\"]");
+                bool hasChange = false;
+                if (imageInfos != null)
+                {
+                    foreach (HtmlNode item in imageInfos)
+                    {
+                        SplashImage splashImage = new SplashImage(item);
+                        splashImage.Category = currentCategory;
+                        if (_allImages.All(m => m.UrlBase != splashImage.UrlBase))
+                        {
+                            //_allImages.Add(splashImage);
+                            _allImages.Insert(0, splashImage);
+                            hasChange = true;
+                        }
+                        splashImage.DownLoadThumbnail();
+                        this.Dispatcher.BeginInvoke(new Action<SplashImage>(m =>
+                        {
+                            ImageItem imageItem = new ImageItem(splashImage) { Width = 250, Height = 200 };
+                            WrapPanelImages.Children.Add(imageItem);
+                        }), splashImage);
+                    }
+                }
+                if (hasChange)
+                {
+                    SaveAllImageInfo(_allImages);
+                }
+                
                 this.Dispatcher.BeginInvoke(new Action(() =>
                 {
                     ProgressBarStatus.Visibility = Visibility.Hidden;
+                    EnableButtons();
                 }));
-                foreach (HtmlNode item in imageInfos)
-                {
-                    SplashImage splashImage = new SplashImage(item);
-                    this.Dispatcher.BeginInvoke(new Action<SplashImage>(m =>
-                    {
-                        ImageItem imageItem = new ImageItem(splashImage) { Width = 250, Height = 200 };
-                        WrapPanelImages.Children.Add(imageItem);
-                    }), splashImage);
-                }
             }, pageIndex);
         }
+        private int InitPageIndex(int index, string category)
+        {
+            if (category == currentCategory)
+            {
+                this.pageIndex = ++index;
+            }
+            else
+            {
+                this.pageIndex = index = 1;
+            }
+            return index;
+        }
+        public void GetBuildings(int index)
+        {
+            const string category = "Buildings";
+            index = InitPageIndex(index, category);
+            currentCategory = category;
+            GetData(string.Format(Url, 1, 0, 0, 0, 0, 0, index));
+        }
+        public void GetFoodAndDrink(int index)
+        {
+            const string category = "FoodAndDrink";
+            index = InitPageIndex(index, category);
+            currentCategory = category;
+            GetData(string.Format(Url, 0, 1, 0, 0, 0, 0, index));
+        }
+        public void GetNature(int index)
+        {
+            const string category = "Nature";
+            index = InitPageIndex(index, category);
+            currentCategory = category;
+            GetData(string.Format(Url, 0, 0, 1, 0, 0, 0, index));
+        }
+        public void GetObjects(int index)
+        {
+            const string category = "Objects";
+            index = InitPageIndex(index, category);
+            currentCategory = category;
+            GetData(string.Format(Url, 0, 0, 0, 1, 0, 0, index));
+        }
 
-        string GetBuildings(int pageIndex)
+
+        public void GetPeople(int index)
         {
-            return string.Format(Url, 1, 0, 0, 0, 0, 0, pageIndex);
+            const string category = "People";
+            index = InitPageIndex(index, category);
+            currentCategory = category;
+            GetData(string.Format(Url, 0, 0, 0, 0, 1, 0, index));
         }
-        string GetFoodAndDrink(int pageIndex)
+        public void GetTechnology(int index)
         {
-            return string.Format(Url, 0, 1, 0, 0, 0, 0, pageIndex);
+            const string category = "Technology";
+            index = InitPageIndex(index, category);
+            currentCategory = category;
+            GetData(string.Format(Url, 0, 0, 0, 0, 0, 1, index));
         }
-        string GetNature(int pageIndex)
+
+        public List<SplashImage> GetAllImageInfo()
         {
-            return string.Format(Url, 0, 0, 1, 0, 0, 0, pageIndex);
+            string file = string.Format("{0}\\All.json", currentCategory);
+            if (!System.IO.File.Exists(file))
+            {
+                System.IO.File.Create(file).Dispose();
+            }
+            return Newtonsoft.Json.JsonConvert.DeserializeObject<List<SplashImage>>(System.IO.File.ReadAllText(file, Encoding.UTF8));
         }
-        string GetObjects(int pageIndex)
+        public void SaveAllImageInfo(List<SplashImage> objs)
         {
-            return string.Format(Url, 0, 0, 0, 1, 0, 0, pageIndex);
-        }
-        string GetPeople(int pageIndex)
-        {
-            return string.Format(Url, 0, 0, 0, 0, 1, 0, pageIndex);
-        }
-        string GetTechnology(int pageIndex)
-        {
-            return string.Format(Url, 0, 0, 0, 0, 0, 1, pageIndex);
+            string file = string.Format("{0}\\All.json", currentCategory);
+            if (!System.IO.File.Exists(file))
+            {
+                System.IO.File.Create(file).Dispose();
+            }
+            string value = Newtonsoft.Json.JsonConvert.SerializeObject(objs);
+            System.IO.File.WriteAllText(file, value, Encoding.UTF8);
         }
     }
 }
